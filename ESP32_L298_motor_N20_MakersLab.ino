@@ -102,6 +102,11 @@ unsigned long sleepStateTimer = 0;
 unsigned long sleepMoveTimer  = 0;
 bool stirBlinked        = false;
 
+// Post-risa: restaurar ojos completamente abiertos al terminar la animación
+bool postLaugh          = false;
+unsigned long laughStartTime = 0;
+const unsigned long laughDuration = 2000; // debe coincidir con laughAnimationDuration
+
 // =====================
 // SETUP
 // =====================
@@ -170,7 +175,7 @@ void loop() {
   // ── Sensor táctil (TTP223) ────────────────────────────
   bool touchNow = digitalRead(TOUCH_PIN);
   if (touchNow && !isTouched)  onPetStart();
-  if (!touchNow && isTouched) { onPetEnd(); petTimer = millis(); }
+  if (!touchNow && isTouched) { onPetEnd(); if (!postLaugh) petTimer = millis(); }
   isTouched = touchNow;
   if (!isTouched && petTimer > 0 && (millis() - petTimer > petCooldown)) {
     petTimer = 0;
@@ -197,6 +202,12 @@ void loop() {
     eyesSleep();
   }
 
+  // Post-risa: restaurar ojos completamente tras la animación
+  if (postLaugh && (millis() - laughStartTime > laughDuration + 200)) {
+    postLaugh = false;
+    eyesWake();
+  }
+
   if (eyesSleeping) updateSleepCycle();
 
   roboEyes.update();
@@ -212,12 +223,12 @@ void loop() {
 // =====================
 
 void onPetStart() {
-  // Despertar suave si estaba durmiendo
+  // Despertar por caricia: despertar + contar como caricia
   if (eyesSleeping) {
     eyesWake();
     if (!btConnected) lastConnectedTime = millis();
     Serial.println("[TOUCH] Despertado por caricia");
-    return; // solo despertar, no contar como caricia todavía
+    // No return: continúa para registrar la caricia y mostrar reacción feliz
   }
 
   if (!btConnected) lastConnectedTime = millis();
@@ -249,8 +260,11 @@ void onJoyReaction() {
   roboEyes.setMood(HAPPY);
   roboEyes.setHeight(36, 36);
   roboEyes.setPosition(DEFAULT);
-  roboEyes.laughAnimationDuration = 2000; // 2 s de rebote (default 500ms)
+  roboEyes.laughAnimationDuration = laughDuration;
   roboEyes.anim_laugh();         // ojos rebotan arriba y abajo
+  postLaugh      = true;
+  laughStartTime = millis();
+  petTimer       = 0;            // evitar que onPetDone() pise el despertar post-risa
   if (!btConnected) lastConnectedTime = millis();
   Serial.println("[TOUCH] ¡Reaccion de alegria!");
 }
@@ -284,18 +298,22 @@ void eyesSleep() {
   roboEyes.setFramerate(15); // movimiento lento durante sueño
   roboEyes.setHeight(4, 4);  // ojos casi cerrados
   roboEyes.eyeLxNext = 0;    // ojos izquierda → zzz derecha
-  roboEyes.eyeLyNext = 38;
+  roboEyes.eyeLyNext = 26;
   Serial.println("[OLED] Entrando en sueño");
 }
 
 void eyesWake() {
   eyesSleeping = false;
+  // Borrar las zonas zzz antes de que RoboEyes tome el control del display
+  display.fillRect(107, 0, 21, 64, SSD1306_BLACK);
+  display.fillRect(0, 0, 25, 64, SSD1306_BLACK);
+  display.display();
   roboEyes.setFramerate(100); // restaurar velocidad normal
   roboEyes.setHeight(36, 36);
   roboEyes.setMood(HAPPY);
   roboEyes.setPosition(DEFAULT);
+  roboEyes.setAutoblinker(true);
   roboEyes.setIdleMode(true, 2, 6);
-  roboEyes.blink();
   Serial.println("[OLED] Despertando");
 }
 
@@ -311,7 +329,7 @@ void updateSleepCycle() {
       if (now - sleepMoveTimer > 4000) {
         sleepMoveTimer = now;
         roboEyes.eyeLxNext = random(3, 8);
-        roboEyes.eyeLyNext = random(34, 40);
+        roboEyes.eyeLyNext = random(22, 28);
       }
       if (now - sleepStateTimer > 6000) {
         sleepState  = STIR_A;
@@ -319,7 +337,7 @@ void updateSleepCycle() {
         stirBlinked = false;
         roboEyes.setHeight(18, 4);   // ojo izquierdo se entreabre
         roboEyes.eyeLxNext = 12;     // deriva levemente al centro (sin saltar)
-        roboEyes.eyeLyNext = 42;
+        roboEyes.eyeLyNext = 28;
       }
       break;
 
@@ -335,7 +353,7 @@ void updateSleepCycle() {
         sleepMoveTimer  = now;
         roboEyes.setHeight(4, 4);    // volver a casi cerrados
         roboEyes.eyeLxNext = 40;     // desliza lentamente a la derecha
-        roboEyes.eyeLyNext = 38;
+        roboEyes.eyeLyNext = 26;
       }
       break;
 
@@ -345,7 +363,7 @@ void updateSleepCycle() {
       if (now - sleepMoveTimer > 4000) {
         sleepMoveTimer = now;
         roboEyes.eyeLxNext = random(37, 43);
-        roboEyes.eyeLyNext = random(34, 40);
+        roboEyes.eyeLyNext = random(22, 28);
       }
       if (now - sleepStateTimer > 6000) {
         sleepState  = STIR_B;
@@ -353,7 +371,7 @@ void updateSleepCycle() {
         stirBlinked = false;
         roboEyes.setHeight(4, 18);   // ojo derecho se entreabre
         roboEyes.eyeLxNext = 28;     // deriva levemente al centro (sin saltar)
-        roboEyes.eyeLyNext = 42;
+        roboEyes.eyeLyNext = 28;
       }
       break;
 
@@ -369,7 +387,7 @@ void updateSleepCycle() {
         sleepMoveTimer  = now;
         roboEyes.setHeight(4, 4);    // volver a casi cerrados
         roboEyes.eyeLxNext = 5;      // desliza lentamente a la izquierda
-        roboEyes.eyeLyNext = 38;
+        roboEyes.eyeLyNext = 26;
       }
       break;
   }
