@@ -223,14 +223,6 @@ void loop() {
 // =====================
 
 void onPetStart() {
-  // Despertar por caricia: despertar + contar como caricia
-  if (eyesSleeping) {
-    eyesWake();
-    if (!btConnected) lastConnectedTime = millis();
-    Serial.println("[TOUCH] Despertado por caricia");
-    // No return: continúa para registrar la caricia y mostrar reacción feliz
-  }
-
   if (!btConnected) lastConnectedTime = millis();
 
   // Conteo de taps para reacción especial
@@ -240,6 +232,13 @@ void onPetStart() {
     firstTapTime = now;
   } else {
     tapCount++;
+  }
+
+  // Despertar por caricia: contar el tap y despertar, sin entrecerrar los ojos
+  if (eyesSleeping) {
+    eyesWake();
+    Serial.println("[TOUCH] Despertado por caricia (tap #1)");
+    return;  // este toque es el despertar; el siguiente entra al flujo normal
   }
 
   if (tapCount >= TAPS_FOR_JOY) {
@@ -314,6 +313,7 @@ void eyesWake() {
   roboEyes.setPosition(DEFAULT);
   roboEyes.setAutoblinker(true);
   roboEyes.setIdleMode(true, 2, 6);
+  roboEyes.blink();  // simula apertura de ojos como en el boot
   Serial.println("[OLED] Despertando");
 }
 
