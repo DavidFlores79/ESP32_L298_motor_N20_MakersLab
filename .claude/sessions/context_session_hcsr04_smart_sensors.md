@@ -133,12 +133,30 @@ SONAR_DONE        → calcula distanceCm = pulseWidth / 58; vuelve a IDLE
 
 **Por qué hold y no taps:** los taps cortos ya están reservados (5 taps = laugh). Un hold de 2s no puede dispararse accidentalmente al acariciar al robot.
 
-**Implementación del hold:**
-- Nueva var: `unsigned long touchPressStart = 0;` — se registra en `onPetStart()`
+**Implementación del hold — basada en estructura ACTUAL de `onPetStart()`:**
+
+El `.ino` fue actualizado (fix eye-wake-restore): `onPetStart()` ahora incrementa `tapCount` **antes** de chequear `eyesSleeping`. La nueva estructura es:
+```
+onPetStart():
+  1. if (!btConnected) lastConnectedTime = millis();
+  2. tap counting (tapCount++)
+  3. if (eyesSleeping) { eyesWake(); return; }   ← tap ya contado
+  4. if (tapCount >= TAPS_FOR_JOY) → joy
+  5. normal pet
+```
+
+- Nueva var: `unsigned long touchPressStart = 0;` — registrar al **inicio absoluto** de `onPetStart()`, como línea 0 (antes del `lastConnectedTime` refresh)
 - Nueva var: `bool exploreTriggerFired = false;` — guard para disparar solo una vez por hold
-- En `loop()`, si `isTouched && !exploreTriggerFired && (millis() - touchPressStart > EXPLORE_HOLD_MS)`:
-  → `toggleExploreMode(); exploreTriggerFired = true;`
+- En `loop()`, **después de** `isTouched = touchNow;`:
+  ```cpp
+  if (isTouched && !exploreTriggerFired && (millis() - touchPressStart > EXPLORE_HOLD_MS)) {
+    toggleExploreMode();
+    exploreTriggerFired = true;
+  }
+  ```
 - En `onPetEnd()`: `exploreTriggerFired = false;`
+
+**Beneficio gratuito:** `eyesWake()` ya tiene `roboEyes.blink()` (agregado en fix eye-wake-restore). Cuando `toggleExploreMode()` llame a `eyesWake()` al despertar desde sueño, el blink de apertura es automático — no hay que agregarlo.
 
 **Constante nueva:** `const unsigned long EXPLORE_HOLD_MS = 2000;`
 
@@ -248,7 +266,7 @@ Solo **un archivo** `.ino` — el proyecto es monolítico por diseño.
 | `updateSonars()` | llamado desde `loop()` | 45 |
 | `toggleExploreMode()` helper | antes de `loop()` | 15 |
 | `updateExplore()` FSM | llamado desde `loop()` cuando `exploreMode` | 70 |
-| Modificar `onPetStart()` | registrar `touchPressStart` | 3 |
+| Modificar `onPetStart()` | `touchPressStart = millis()` como línea 0 (antes del `lastConnectedTime` refresh) | 2 |
 | Modificar `onPetEnd()` | reset `exploreTriggerFired` | 2 |
 | Añadir hold-check en `loop()` | sección touch sensor | 5 |
 | Modificar `processCommand()` — botón A00 | toggle `exploreMode` | 5 |
@@ -304,3 +322,4 @@ Añadir a la tabla de comandos existente:
 |---|---|
 | 2026-04-07 v1 | Primera versión — análisis con Sequential Thinking + Context7 + arduino-embedded-developer agent |
 | 2026-04-07 v2 | Refinado con decisiones del usuario: no safety override, explore por hold-touch + A00, placement front-3 |
+| 2026-04-07 v3 | Actualizado por cambios en `.ino` (fix eye-wake-restore): nueva estructura de `onPetStart()`, `touchPressStart` va como línea 0; `eyesWake()` ya tiene `blink()` gratis |

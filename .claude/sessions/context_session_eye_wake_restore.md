@@ -119,6 +119,13 @@ Total diff: **+2 lines**.
 
 ---
 
+## Estado: ✅ IMPLEMENTADO (2026-04-07)
+
+Ambos cambios aplicados en el `.ino`. Diferencia respecto al plan:
+- La implementación mueve el conteo de taps **antes** del chequeo `eyesSleeping`, por lo que el toque que despierta al robot cuenta como tap #1 (mejora intencional — log dice `"Despertado por caricia (tap #1)"`). El plan original lo ignoraba.
+
+---
+
 ## Timing / Safety Notes
 
 - `roboEyes.blink()` is non-blocking — it queues a blink animation processed in `roboEyes.update()`.
