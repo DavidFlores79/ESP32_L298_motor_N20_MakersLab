@@ -63,5 +63,6 @@ The display runs the **RoboEyes** library and reacts to robot state:
 | Turning left/right | Gaze left/right |
 | Idle / stopped | Default |
 | BT disconnected (10 s) | Sleep mode with animated zzz |
-| Touch detected | Happy + squint; 5 taps → laugh animation |
-| BT reconnected | Wake up + happy |
+| Wake from sleep (BT reconnect or touch) | Wide open + blink animation, then idle |
+| Touch detected (awake) | Happy + squint; 5 taps → laugh animation |
+| BT reconnected | Wide open + blink, then happy idle |
