@@ -274,11 +274,7 @@ void onPetEnd() {
 }
 
 void onPetDone() {
-  if (btConnected) {
-    roboEyes.setMood(DEFAULT);
-  } else if (!eyesSleeping) {
-    roboEyes.setMood(TIRED);   // volver a cansado si BT desconectado
-  }
+  roboEyes.setMood(DEFAULT);  // ojos normales; si BT sigue desconectado el FSM de sueño tomará el control
   Serial.println("[TOUCH] Vuelta al estado normal");
 }
 
