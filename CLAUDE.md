@@ -11,6 +11,7 @@ This is an Arduino IDE project. There is no CLI build system — compilation and
 - `Adafruit SSD1306`
 - `FluxGarage RoboEyes`
 - `BluetoothSerial` (built-in with the ESP32 Arduino core)
+- `Makuna/DFMiniMp3` (`DFMiniMp3.h`) — for DFPlayer Mini control
 
 **Board:** ESP32 (must have Classic Bluetooth enabled — the sketch has a compile-time `#error` guard that enforces this).
 
@@ -25,6 +26,7 @@ This is an Arduino IDE project. There is no CLI build system — compilation and
 | Motors | 2× N20 DC gear motors |
 | Display | SSD1306 OLED 128×64 (I2C, address 0x3C) |
 | Touch sensor | TTP223 capacitive (digital input) |
+| Audio module | DFPlayer Mini (MP3-TF-16P) via UART2 at 9600 baud |
 | BT device name | `ESP32-MakersLab-Car` |
 
 **Pin mapping:**
@@ -40,6 +42,8 @@ This is an Arduino IDE project. There is no CLI build system — compilation and
 | OLED SDA | 21 |
 | OLED SCL | 22 |
 | Touch sensor | 19 |
+| DFPlayer RX (from DFPlayer TX) | 16 |
+| DFPlayer TX (to DFPlayer RX, 1KΩ resistor) | 17 |
 
 PWM: 1 kHz, 8-bit resolution (0–255).
 
@@ -61,10 +65,12 @@ Everything lives in the single `.ino` file (~600 lines). The `loop()` function a
 
 6. **Touch/pet handler** — Debounced edge detection on GPIO 19. Five taps within a 4-second window triggers a 2-second laugh animation. Single-tap hold squints the eyes (height 18 px); release restores them (36 px) after a 3-second cooldown.
 
+7. **DFPlayer Mini audio** — Sound effect player via UART2. Plays tracks from `/mp3/` folder on SD card, triggered by robot behaviour events (pet → track 3, laugh → track 8, sleep → track 9, boot → track 1). Uses Makuna/DFMiniMp3 library with `Mp3ChipIncongruousNoAck` variant (critical: the default `Mp3ChipOriginal` retries commands 3× when ACKs are missing, causing triple playback). `mp3.loop()` is called every loop iteration. All effects use `mp3PlayTrackNow_Interrupt()` to play immediately in sync with eye animations.
+
 **Key state flags:**
 - `btConnected` — BT client currently connected
 - `eyesSleeping` — sleep FSM is active
-- `petting` / `tapCount` — touch interaction state
+- `tapCount` — touch interaction state
 - `currentSpeed` — global speed applied to all directional commands until changed
 
 ## Bluetooth Protocol
@@ -79,7 +85,6 @@ Commands are newline-terminated ASCII strings sent over Classic Bluetooth SPP.
 | `R01` | Turn right (Motor A forward, Motor B back) |
 | `S00` | Stop, reset watchdog |
 | `SL1:XX` | Set speed (0–255 slider → mapped to 0 or 60–255 PWM) |
-| `A00` / `B00` / `X00` / `Y00` | Face buttons (action slots, currently unimplemented) |
 | `P` | Heartbeat ping → device replies `K`, resets watchdog |
 
 Speed mapping: slider value 0 → full stop; 1–255 → clamped to `[minSpeed=60, maxSpeed=255]`.
@@ -96,6 +101,9 @@ Speed mapping: slider value 0 → full stop; 1–255 → clamped to `[minSpeed=6
 | `tapWindow` | 4000 ms | Window for counting rapid taps |
 | `TAPS_FOR_JOY` | 5 | Taps required to trigger laugh |
 | `laughDuration` | 2000 ms | Duration of laugh animation |
+| `MP3_VOLUME` | 25 | DFPlayer volume (0–30) |
+| `SPURIOUS_GUARD_MS` | 500 ms | Ignore DFPlayer finish callbacks this soon after play |
+| `DUPLICATE_GUARD_MS` | 800 ms | Ignore duplicate DFPlayer finish callbacks |
 
 ## Code Conventions
 

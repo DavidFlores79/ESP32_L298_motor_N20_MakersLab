@@ -1,12 +1,14 @@
 // ABOUTME: ESP32 motor controller (L298 + N20) with Classic Bluetooth SPP
 // ABOUTME: Receives gamepad commands from MakersLab Flutter app via BluetoothSerial
 // ABOUTME: OLED 128x64 shows animated robot eyes via FC_RoboEyes library
+// ABOUTME: DFPlayer Mini for sound effects via HardwareSerial (UART2)
 
 #include "BluetoothSerial.h"
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <FluxGarage_RoboEyes.h>
+#include <DFMiniMp3.h>
 
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
   #error Bluetooth Classic no está habilitado. Verifica la configuración del SDK.
@@ -108,6 +110,105 @@ unsigned long laughStartTime = 0;
 const unsigned long laughDuration = 2000; // debe coincidir con laughAnimationDuration
 
 // =====================
+// DFPLAYER MINI (MP3)
+// =====================
+
+// Pines UART2 para DFPlayer
+const int DFPLAYER_RX = 16;  // DFPlayer TX (pin 3) → ESP32 GPIO 16
+const int DFPLAYER_TX = 17;  // ESP32 GPIO 17 → DFPlayer RX (pin 2) vía resistencia 1KΩ
+
+// Volumen 0–30
+static const uint8_t  MP3_VOLUME             = 25;
+static const uint8_t  MAX_CONSECUTIVE_ERRORS = 5;
+
+// Guardas contra quirks del hardware DFPlayer
+static const unsigned long SPURIOUS_GUARD_MS  = 500UL;
+static const unsigned long DUPLICATE_GUARD_MS = 800UL;
+
+// Forward-declare clase de notificaciones
+class Mp3Notify;
+
+HardwareSerial mp3Serial(2);  // UART2 del ESP32
+// Mp3ChipIncongruousNoAck: no espera ACK para comandos de reproducción (< 0x30).
+// Evita que la librería reintente el comando 3 veces cuando el DFPlayer no responde ACK.
+typedef DFMiniMp3<HardwareSerial, Mp3Notify, Mp3ChipIncongruousNoAck> DfMp3Type;
+static DfMp3Type mp3(mp3Serial);
+
+// Estado del reproductor
+static bool          mp3WaitingForFinish = false;
+static unsigned long mp3LastPlayCmd      = 0;
+static uint16_t      mp3LastFinishedIdx  = 0;
+static unsigned long mp3LastFinishTime   = 0;
+static uint8_t       mp3ConsecutiveErrs  = 0;
+static bool          mp3Halted           = false;
+
+// Clase de notificaciones DFPlayer (callbacks síncronos desde mp3.loop())
+class Mp3Notify {
+public:
+  static void OnError(DfMp3Type& ref, uint16_t errorCode) {
+    Serial.print("[MP3] Error: ");
+    Serial.println(errorCode);
+
+    mp3ConsecutiveErrs++;
+    if (mp3ConsecutiveErrs >= MAX_CONSECUTIVE_ERRORS) {
+      Serial.println("[MP3] Demasiados errores consecutivos — detenido.");
+      mp3Halted = true;
+    }
+    mp3WaitingForFinish = false;
+  }
+
+  static void OnPlayFinished(DfMp3Type& ref, DfMp3_PlaySources source, uint16_t track) {
+    unsigned long now = millis();
+
+    // Q1: Spurious — muy pronto después de un comando play
+    if ((now - mp3LastPlayCmd) < SPURIOUS_GUARD_MS) return;
+    if (!mp3WaitingForFinish) return;
+
+    // Q2: Duplicado — mismo índice global dentro de la ventana de guarda
+    if (track == mp3LastFinishedIdx && (now - mp3LastFinishTime) < DUPLICATE_GUARD_MS) return;
+
+    mp3LastFinishedIdx  = track;
+    mp3LastFinishTime   = now;
+    mp3WaitingForFinish = false;
+    mp3ConsecutiveErrs  = 0;
+
+    Serial.println("[MP3] Efecto terminado.");
+  }
+
+  static void OnPlaySourceOnline(DfMp3Type& ref, DfMp3_PlaySources source) {
+    Serial.println("[MP3] Fuente online.");
+  }
+  static void OnPlaySourceInserted(DfMp3Type& ref, DfMp3_PlaySources source) {
+    Serial.println("[MP3] SD insertada.");
+  }
+  static void OnPlaySourceRemoved(DfMp3Type& ref, DfMp3_PlaySources source) {
+    Serial.println("[MP3] SD removida!");
+  }
+};
+
+// Interno: envía el comando play directamente al DFPlayer
+static void mp3PlayTrackNow(uint16_t track) {
+  Serial.print("[MP3] Reproduciendo /mp3/");
+  if (track < 1000) Serial.print('0');
+  if (track < 100)  Serial.print('0');
+  if (track < 10)   Serial.print('0');
+  Serial.print(track);
+  Serial.println(".mp3");
+
+  mp3.playMp3FolderTrack(track);
+  mp3LastPlayCmd      = millis();
+  mp3WaitingForFinish = true;
+}
+
+// Interrumpe lo que suena y reproduce inmediatamente.
+// El DFPlayer acepta playMp3FolderTrack estando en reproducción y cambia la pista solo.
+// No llamar mp3.stop() antes — genera callback spurious y añade latencia.
+void mp3PlayTrackNow_Interrupt(uint16_t track) {
+  mp3WaitingForFinish = false;
+  mp3PlayTrackNow(track);
+}
+
+// =====================
 // SETUP
 // =====================
 
@@ -145,6 +246,29 @@ void setup() {
   // ── Touch sensor ──────────────────────────────────────
   pinMode(TOUCH_PIN, INPUT);
 
+  // ── DFPlayer Mini ─────────────────────────────────────
+  mp3Serial.begin(9600, SERIAL_8N1, DFPLAYER_RX, DFPLAYER_TX);
+  mp3.begin();
+
+  // Esperar inicialización del DFPlayer (lectura de SD)
+  Serial.println("[MP3] Esperando init DFPlayer (2 s)...");
+  unsigned long mp3WaitStart = millis();
+  while (millis() - mp3WaitStart < 2000UL) {
+    mp3.loop();
+  }
+
+  mp3.setVolume(MP3_VOLUME);
+  mp3.setRepeatPlayCurrentTrack(false);
+  Serial.print("[MP3] Volumen: ");
+  Serial.println(MP3_VOLUME);
+
+  uint16_t totalOnSd = mp3.getTotalTrackCount(DfMp3_PlaySource_Sd);
+  Serial.print("[MP3] Archivos en SD: ");
+  Serial.println(totalOnSd);
+
+  // Reproducir pista 1 al encender
+  mp3PlayTrackNow(1);
+
   stopMotors();
   lastConnectedTime = millis(); // countdown empieza desde el boot
 }
@@ -154,6 +278,9 @@ void setup() {
 // =====================
 
 void loop() {
+  // ── DFPlayer: procesar serial ─────────────────────────
+  mp3.loop();
+
   // Leer bytes disponibles por Bluetooth
   while (SerialBT.available()) {
     char c = (char)SerialBT.read();
@@ -252,6 +379,7 @@ void onPetStart() {
   roboEyes.setPosition(DEFAULT);
   roboEyes.setHeight(18, 18);  // ojos entrecerrados de placer
   roboEyes.blink();
+  mp3PlayTrackNow_Interrupt(3); // sonido de caricia sincronizado con el entrecejo
   Serial.println("[TOUCH] Caricia detectada");
 }
 
@@ -260,7 +388,8 @@ void onJoyReaction() {
   roboEyes.setHeight(36, 36);
   roboEyes.setPosition(DEFAULT);
   roboEyes.laughAnimationDuration = laughDuration;
-  roboEyes.anim_laugh();         // ojos rebotan arriba y abajo
+  roboEyes.anim_laugh();              // ojos rebotan arriba y abajo
+  mp3PlayTrackNow_Interrupt(8);       // sonido de risa sincronizado con la animación
   postLaugh      = true;
   laughStartTime = millis();
   petTimer       = 0;            // evitar que onPetDone() pise el despertar post-risa
@@ -294,6 +423,7 @@ void eyesSleep() {
   roboEyes.setHeight(4, 4);  // ojos casi cerrados
   roboEyes.eyeLxNext = 0;    // ojos izquierda → zzz derecha
   roboEyes.eyeLyNext = 26;
+  mp3PlayTrackNow_Interrupt(9); // sonido de sueño sincronizado con la animación zzz
   Serial.println("[OLED] Entrando en sueño");
 }
 
@@ -431,17 +561,13 @@ void drawZzz() {
 // =====================
 //
 // Protocolo MakersLab Gamepad (texto + \n):
-//   F01  → Adelante        (joystick arriba)
-//   B01  → Atrás           (joystick abajo)
-//   L01  → Girar izquierda (joystick izquierda)
-//   R01  → Girar derecha   (joystick derecha)
-//   S00  → Stop            (joystick centrado / soltado)
-//   A00  → Botón A         (acción libre)
-//   B00  → Botón B         (acción libre)  ← distinto de B01 (atrás)
-//   X00  → Botón X         (acción libre)
-//   Y00  → Botón Y         (acción libre)
-//   SL1:XX → Slider 1      (velocidad directa 0–255; 0 = sin movimiento)
-//   P      → Heartbeat ping → responder "K"
+//   F01    → Adelante        (joystick arriba)
+//   B01    → Atrás           (joystick abajo)
+//   L01    → Girar izquierda (joystick izquierda)
+//   R01    → Girar derecha   (joystick derecha)
+//   S00    → Stop            (joystick centrado / soltado)
+//   SL1:XX → Slider 1        (velocidad directa 0–255; 0 = sin movimiento)
+//   P      → Heartbeat ping  → responder "K"
 // =====================
 
 void processCommand(String cmd) {
@@ -498,18 +624,6 @@ void processCommand(String cmd) {
     Serial.print("[BT] Velocidad SL1: ");
     Serial.println(currentSpeed);
     return;
-  }
-
-  // --- Botones de cara (A00 / B00 / X00 / Y00) ---
-  // Asigna acciones según las necesidades del módulo.
-  if (suffix == "00") {
-    switch (dir) {
-      case 'A': /* acción botón A */ break;
-      case 'B': /* acción botón B */ break;
-      case 'X': /* acción botón X */ break;
-      case 'Y': /* acción botón Y */ break;
-      default: break;
-    }
   }
 }
 
