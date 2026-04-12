@@ -95,7 +95,7 @@ bool btConnected  = false;
 bool eyesSleeping = false;
 
 unsigned long lastConnectedTime     = 0;
-const unsigned long eyeSleepTimeout = 10000; // 10 s sin BT → ojos somnolientos
+const unsigned long eyeSleepTimeout = 15000; // 15 s sin BT → ojos somnolientos
 
 // Estado de la animación de sueño
 enum SleepState { SLEEP_A, STIR_A, SLEEP_B, STIR_B };
@@ -404,6 +404,7 @@ void onPetEnd() {
 
 void onPetDone() {
   roboEyes.setMood(DEFAULT);  // ojos normales; si BT sigue desconectado el FSM de sueño tomará el control
+  if (!btConnected) lastConnectedTime = millis();  // reiniciar countdown para que el timeout completo corra tras la caricia
   Serial.println("[TOUCH] Vuelta al estado normal");
 }
 
@@ -435,10 +436,20 @@ void eyesWake() {
   display.display();
   roboEyes.setFramerate(100); // restaurar velocidad normal
   roboEyes.setHeight(36, 36);
-  roboEyes.setMood(HAPPY);
+  roboEyes.eyeLheightCurrent = 36;  // forzar altura actual para que el blink parta de ojos abiertos
+  roboEyes.eyeRheightCurrent = 36;
+  // Resetear párpados a 0 para que la transición parta de ojos totalmente abiertos.
+  // Sin esto, si el párpado inferior HAPPY ya estaba en 18px (post-risa), los ojos se
+  // ven entrecerrados desde el primer frame en lugar de abrirse gradualmente.
+  roboEyes.eyelidsTiredHeight           = 0;
+  roboEyes.eyelidsTiredHeightNext       = 0;
+  roboEyes.eyelidsHappyBottomOffset     = 0;
+  roboEyes.eyelidsHappyBottomOffsetNext = 0;
+  roboEyes.setMood(DEFAULT); // DEFAULT = sin párpados → ojos totalmente abiertos al despertar
   roboEyes.setPosition(DEFAULT);
   roboEyes.setAutoblinker(true);
   roboEyes.setIdleMode(true, 2, 6);
+  if (!btConnected) lastConnectedTime = millis(); // reiniciar timeout completo al momento de despertar
   roboEyes.blink();  // simula apertura de ojos como en el boot
   Serial.println("[OLED] Despertando");
 }

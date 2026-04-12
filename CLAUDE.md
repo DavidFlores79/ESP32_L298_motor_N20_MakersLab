@@ -97,7 +97,7 @@ Speed mapping: slider value 0 → full stop; 1–255 → clamped to `[minSpeed=6
 | `minSpeed` | 60 | Minimum PWM to prevent motor stall |
 | `maxSpeed` | 255 | Maximum PWM |
 | `cmdTimeoutMs` | 3000 ms | Safety watchdog |
-| `eyeSleepTimeout` | 10000 ms | Idle time before sleep FSM activates |
+| `eyeSleepTimeout` | 15000 ms | Idle time before sleep FSM activates |
 | `petCooldown` | 3000 ms | Eye-happy duration after touch release |
 | `tapWindow` | 4000 ms | Window for counting rapid taps |
 | `TAPS_FOR_JOY` | 5 | Taps required to trigger laugh |
