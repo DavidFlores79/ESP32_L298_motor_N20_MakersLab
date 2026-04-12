@@ -566,6 +566,10 @@ void drawZzz() {
 //   L01    → Girar izquierda (joystick izquierda)
 //   R01    → Girar derecha   (joystick derecha)
 //   S00    → Stop            (joystick centrado / soltado)
+//   A00    → Botón A         (disponible)
+//   B00    → Botón B         (disponible)  ← distinto de B01 (atrás)
+//   X00    → Botón X         (disponible)
+//   Y00    → Botón Y         (disponible)
 //   SL1:XX → Slider 1        (velocidad directa 0–255; 0 = sin movimiento)
 //   P      → Heartbeat ping  → responder "K"
 // =====================

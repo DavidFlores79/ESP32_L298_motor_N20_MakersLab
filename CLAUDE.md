@@ -85,6 +85,7 @@ Commands are newline-terminated ASCII strings sent over Classic Bluetooth SPP.
 | `R01` | Turn right (Motor A forward, Motor B back) |
 | `S00` | Stop, reset watchdog |
 | `SL1:XX` | Set speed (0–255 slider → mapped to 0 or 60–255 PWM) |
+| `A00` / `B00` / `X00` / `Y00` | Face buttons (available for future use) |
 | `P` | Heartbeat ping → device replies `K`, resets watchdog |
 
 Speed mapping: slider value 0 → full stop; 1–255 → clamped to `[minSpeed=60, maxSpeed=255]`.
